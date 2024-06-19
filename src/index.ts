@@ -8,7 +8,7 @@ export class DScraper {
 		downloadPath: "attachments",
 		downloadEmbedAttachments: true,
 		downloadMessageAttachments: true,
-		matchAttachmentName: /./,
+		// matchAttachmentName: /./,
 	};
 
 	constructor() {
@@ -18,14 +18,20 @@ export class DScraper {
 	async login(token: string, options?: ScrapeOptions) {
 		this.baseOptions = { ...this.baseOptions, ...options };
 
-		await this.client.login(token);
+		let loggedIn = false;
 
-		// Wait for the client to be ready
-		await new Promise((resolve) => {
-			this.client.once("ready", resolve);
+		this.client.once("ready", () => {
+			loggedIn = true;
 		});
 
-		return this.client;
+		await this.client.login(token);
+
+		// Wait for the client to log in
+		while (!loggedIn) {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+
+		return this;
 	}
 
 	async getTextChannels(guildID: string) {
@@ -59,7 +65,12 @@ export class DScraper {
 	async scrapeChannel(channelID: string, options?: ScrapeOptions) {
 		options = options || this.baseOptions;
 
-		const channel = await this.client.channels.fetch(channelID) as BaseGuildTextChannel;
+		let channel: BaseGuildTextChannel;
+		try {
+			channel = await this.client.channels.fetch(channelID) as BaseGuildTextChannel;
+		} catch (error) {
+			throw new Error(`Error fetching channel (${channelID}): ${error}`);
+		}
 
 		if (!channel) {
 			throw new Error(`Channel (${channelID}) not found.`);
@@ -74,12 +85,17 @@ export class DScraper {
 		let lastMessageId = lastMessage.lastKey();
 		let messages = Array.from(lastMessage);
 
-		do {
-			lastMessage = await channel.messages.fetch({ limit: 100, before: lastMessageId || undefined });
-			messages = messages.concat(Array.from(lastMessage));
-			lastMessageId = lastMessage.lastKey();
-		} while (lastMessage.size === 100 &&
-			options.max ? messages.length < options.max : true);
+		if (messages.length == 100) {
+			while (lastMessage.size === 100) {
+				lastMessage = await channel.messages.fetch({ limit: 100, before: lastMessageId || undefined });
+				messages = messages.concat(Array.from(lastMessage));
+				lastMessageId = lastMessage.lastKey();
+
+				if (options.max && messages.length >= options.max) {
+					break;
+				}
+			}
+		}
 
 		if (options.max && messages.length > options.max) {
 			messages = messages.slice(0, options.max);
@@ -94,5 +110,8 @@ export class DScraper {
 
 		return normalizedMessages;
 	}
-}
 
+	async quit() {
+		this.client.destroy();
+	}
+}

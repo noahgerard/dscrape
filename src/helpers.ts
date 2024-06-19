@@ -37,7 +37,7 @@ export async function downloadAttachments(messages: [string, Message<boolean>][]
 		const message = messages[i][1];
 
 		if (options?.downloadMessageAttachments && message.attachments.size > 0) {
-			await new Promise((resolve) => setTimeout(resolve, 1000));
+			await new Promise((resolve) => setTimeout(resolve, 100));
 
 			for (let j = 0; j < message.attachments.size; j++) {
 				const attachment = message.attachments.at(j);
@@ -46,9 +46,9 @@ export async function downloadAttachments(messages: [string, Message<boolean>][]
 					continue;
 				}
 
-				if (attachment.name && !options.matchAttachmentName?.test(attachment.name)) {
+				/* if (attachment.name && !options.matchAttachmentName?.test(attachment.name)) {
 					continue;
-				}
+				} */
 
 				const url = attachment.url;
 				const filename = attachment.name;
