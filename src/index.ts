@@ -1,58 +1,53 @@
-import { Client, Message } from "discord.js-selfbot-v13"
-import dotenv from "dotenv";
-import fs from "fs";
+import { BaseGuildTextChannel, Client } from "discord.js-selfbot-v13"
+import { downloadAttachments, normalizeMessages } from "./helpers";
+import { ScrapeOptions } from "./types";
 
-dotenv.config();
+export class DScraper {
+	client: Client;
+	baseOptions: ScrapeOptions = {
+		downloadPath: "attachments",
+		downloadEmbedAttachments: true,
+		downloadMessageAttachments: true,
+		matchAttachmentName: /./,
+	};
 
-const client = new Client();
+	constructor() {
+		this.client = new Client();
+	}
 
-const channelsToScrape = [
-	"1245368220865794088"
-];
+	async login(token: string) {
+		await this.client.login(token);
 
-function normalizeMessages(messages: [string, Message<boolean>][]) {
-	return messages.map((entry) => {
-		const message = entry[1];
+		// Wait for the client to be ready
+		await new Promise((resolve) => {
+			this.client.once("ready", resolve);
+		});
 
-		return {
-			id: message.id,
-			createdTimestamp: message.createdTimestamp,
-			content: message.content,
-			embeds: message.embeds,
-			attachments: message.attachments.map((attachment) => {
-				return {
-					url: attachment.url,
-					filename: attachment.name
-				}
-			}),
-		}
-	});
-}
+		return this.client;
+	}
 
-client.on("ready", async () => {
-	console.log(`Logged in as ${client?.user?.tag}!`);
+	async getTextChannels(guildID: string) {
+		const guild = await this.client.guilds.fetch(guildID);
 
-	const guild = await client.guilds.fetch("1087843967573438504");
+		const channels = guild.channels.cache.filter((channel) => {
+			return channel.isText();
+		});
 
-	for (let c of guild.channels.cache.entries()) {
-		const channelID = c[0];
-		const channel = await guild.channels.fetch(channelID);
+		return channels;
+	}
+
+	async scrapeChannel(channelID: string, options?: ScrapeOptions) {
+		options = options || this.baseOptions;
+
+		const channel = await this.client.channels.fetch(channelID) as BaseGuildTextChannel;
 
 		if (!channel) {
-			console.log(`Channel (${channelID}) not found.`);
-			continue;
-		}
-
-		if (channel.parentId != "1088044992922132501") {
-			continue;
+			throw new Error(`Channel (${channelID}) not found.`);
 		}
 
 		if (!channel.isText()) {
-			console.log(`Channel ${channel?.name} (${channelID}) is not a text channel.`);
-			continue;
+			throw new Error(`Channel ${channel?.name} (${channelID}) is not a text channel.`);
 		}
-
-		console.log(`Scraping channel ${channel?.name} (${channelID})...`);
 
 		// Fetch the last 100 messages continuously until we have all messages
 		let lastMessage = await channel.messages.fetch({ limit: 100 });
@@ -63,23 +58,21 @@ client.on("ready", async () => {
 			lastMessage = await channel.messages.fetch({ limit: 100, before: lastMessageId || undefined });
 			messages = messages.concat(Array.from(lastMessage));
 			lastMessageId = lastMessage.lastKey();
-		} while (lastMessage.size === 100);
+		} while (lastMessage.size === 100 &&
+			options.max ? messages.length < options.max : true);
+
+		if (options.max && messages.length > options.max) {
+			messages = messages.slice(0, options.max);
+		}
 
 		const normalizedMessages = normalizeMessages(messages);
 
-		// Create the directory if it doesn't exist
-		if (!fs.existsSync(`guild-${guild.id}`)) {
-			fs.mkdirSync(`guild-${guild.id}`);
+		if (options.downloadMessageAttachments || options.downloadEmbedAttachments) {
+			// Download attachments
+			await downloadAttachments(messages, options);
 		}
 
-		// Save the messages to a file
-		fs.writeFileSync(`guild-${guild.id}/messages-${channelID}.json`, JSON.stringify(normalizedMessages, null, 2));
-
-		console.log(`Fetched ${messages.length} messages from channel ${channel?.name} (${channelID}).`);
+		return normalizedMessages;
 	}
+}
 
-	console.log("Finished scraping all channels.");
-	client.destroy();
-});
-
-client.login(process.env.TOKEN);
