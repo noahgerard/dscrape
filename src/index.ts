@@ -1,4 +1,4 @@
-import { BaseGuildTextChannel, Client } from "discord.js-selfbot-v13"
+import { BaseGuildTextChannel, CategoryChannel, Client, Collection, GuildBasedChannel } from "discord.js-selfbot-v13"
 import { downloadAttachments, normalizeMessages } from "./helpers";
 import { ScrapeOptions } from "./types";
 
@@ -15,7 +15,9 @@ export class DScraper {
 		this.client = new Client();
 	}
 
-	async login(token: string) {
+	async login(token: string, options?: ScrapeOptions) {
+		this.baseOptions = { ...this.baseOptions, ...options };
+
 		await this.client.login(token);
 
 		// Wait for the client to be ready
@@ -34,6 +36,24 @@ export class DScraper {
 		});
 
 		return channels;
+	}
+
+	async getCategoryTextChannels(guildID: string, categoryID: string) {
+		const guild = await this.client.guilds.fetch(guildID);
+
+		const category = guild.channels.cache.find((channel) => {
+			return channel.type === "GUILD_CATEGORY" && channel.id === categoryID;
+		}) as CategoryChannel;
+
+		if (!category) {
+			throw new Error(`Category (${categoryID}) not found.`);
+		}
+
+		const channels = category.children.filter((channel) => {
+			return channel.isText();
+		});
+
+		return channels as Collection<string, GuildBasedChannel>;
 	}
 
 	async scrapeChannel(channelID: string, options?: ScrapeOptions) {
